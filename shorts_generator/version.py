@@ -11,4 +11,6 @@ APP_VERSION = "1.27.1"
 
 # Where updates come from. Hardcoded on purpose: the page must never be able
 # to point the updater at a different repository.
-UPDATE_REPO = "kleZ799/clipmint"
+# Empty in this Philibert build: an update from the original project would replace
+# it with a version that sends transcripts to the cloud.
+UPDATE_REPO = ""

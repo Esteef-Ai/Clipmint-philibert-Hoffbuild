@@ -120,7 +120,7 @@ def can_self_update() -> bool:
     # a running process and the signature no longer matches its contents, so
     # the app macOS refuses to launch next time is the one this was meant to
     # install. Mac users are told a build exists and sent to fetch it.
-    if MAC:
+    if MAC or not UPDATE_REPO:
         return False
     return is_onefile()
 
@@ -226,6 +226,9 @@ def check() -> dict:
         "notes_url": f"https://github.com/{UPDATE_REPO}/releases/latest",
         "reason": "",
     }
+    if not UPDATE_REPO:
+        state["reason"] = "Updates are off in this build."
+        return state
     try:
         with _request(API_LATEST) as resp:
             data = json.loads(resp.read().decode("utf-8"))

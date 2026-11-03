@@ -1,3 +1,23 @@
+> [!IMPORTANT]
+> **This is an unofficial fork of [ClipMint](https://github.com/kleZ799/clipmint), for the Philibert local-AI test build.**
+> It is not made or endorsed by ClipMint's authors, so please report problems with this build here, not to them.
+>
+> **What it changes:**
+> - The AI runs on your own PC, through the Ollama that [Philibert](https://github.com/Esteef-Ai/philibert-esteef-ai) uses. No API key is needed.
+> - When Philibert is selected, transcripts and frames are never sent to a cloud AI, and a failed request stops with an error instead of falling back to one.
+> - Self-update is off, so this build cannot be replaced by the original.
+>
+> **Download this build from [this repo's Releases](https://github.com/Esteef-Ai/Clipmint-philibert-Hoffbuild/releases).** Download links further down this page go to the original ClipMint, which uses cloud AI.
+>
+> **Setup:**
+> 1. Install and start Philibert or [Ollama](https://ollama.com).
+> 2. Install a text model and a vision model. The defaults are `qwen3:8b` and `qwen2.5vl:7b`.
+> 3. Run `ClipMint.exe` and pick your model in Settings. Windows may warn that the app is unsigned.
+>
+> The rest of this page is the original ClipMint README, and some of what it says about API keys and cloud AI does not apply to this build.
+>
+> **Credits:** ClipMint is by Parth Bhadana, based on work by Anil Chandra Naidu Matcha, under the [MIT License](LICENSE), which also covers this fork. Their full commit history is kept here. The Windows build bundles [FFmpeg](https://ffmpeg.org), a separate GPL-licensed program by the FFmpeg developers ([source code](https://ffmpeg.org/download.html#get-sources)), built by [gyan.dev](https://www.gyan.dev/ffmpeg/builds/). Fonts, emoji and the face-detection model keep their own license files in `assets/`.
+
 <div align="center">
 
 # ✂️ ClipMint

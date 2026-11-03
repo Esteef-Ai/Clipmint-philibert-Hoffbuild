@@ -1,12 +1,18 @@
 """Local LLM backend — OpenAI or Gemini, selected by LLM_PROVIDER."""
+import base64
+import json
 import re
 import time
+import urllib.error
+import urllib.request
 from typing import Dict, List, Optional, Tuple
 
 from .. import usage
 from ..config import (
     current_model,
     current_provider,
+    philibert_url,
+    philibert_vision_model,
     require_gemini_key,
     require_groq_key,
     require_openai_key,
@@ -146,6 +152,89 @@ def call_groq_llm(prompt: str) -> str:
     )
     usage.record("groq", model)
     return response.choices[0].message.content or ""
+
+
+# A long transcript has to fit whole: Ollama trims what does not fit without
+# saying so, and its OpenAI-style endpoint cannot ask for a bigger window. The
+# native one can, and it is also what Philibert's "Share my models" relay allows.
+PHILIBERT_NUM_CTX = 32768
+PHILIBERT_TIMEOUT = 1800     # a big model on a full GPU is slow, not stuck
+# Short, so the model leaves the GPU soon after the ranking, before the render.
+PHILIBERT_KEEP_ALIVE = "2m"
+
+
+def _philibert_post(path: str, body: Optional[dict], timeout: float) -> dict:
+    url = philibert_url() + path
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def list_philibert_models() -> List[dict]:
+    """The models installed where PHILIBERT_URL points, or [] if it does not answer."""
+    try:
+        found = _philibert_post("/api/tags", None, 3).get("models") or []
+    except Exception:
+        return []
+    return [{"value": m["name"], "note": f"{m.get('size', 0) / 2 ** 30:.1f} GB"}
+            for m in found if "embed" not in m["name"]]
+
+
+def _philibert_chat(model: str, message: dict, temperature: float) -> str:
+    """One request to the local model. Never falls over to a cloud provider:
+    someone who chose this chose to keep their transcript and frames at home."""
+    body = {
+        "model": model,
+        "stream": False,
+        "think": False,      # reasoning text would land in the JSON
+        "format": "json",
+        "keep_alive": PHILIBERT_KEEP_ALIVE,
+        "options": {"temperature": temperature, "num_ctx": PHILIBERT_NUM_CTX},
+        "messages": [message],
+    }
+    attempts = 3
+    for attempt in range(attempts):
+        try:
+            reply = _philibert_post("/api/chat", body, PHILIBERT_TIMEOUT)
+            break
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:200]
+            if e.code == 404:
+                raise RuntimeError(f"Model {model} is not installed on Philibert ({detail}). "
+                                   f"Install it, or pick another in Settings.") from e
+            if attempt == attempts - 1:
+                raise RuntimeError(f"Philibert's model {model} failed: {detail}") from e
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if attempt == attempts - 1:
+                raise RuntimeError(f"Could not reach Philibert's models at {philibert_url()} "
+                                   f"({e}). Is Philibert or Ollama running?") from e
+        print(f"[llm] Philibert did not answer; retrying (attempt {attempt + 1}/{attempts})", flush=True)
+        time.sleep(5.0 * (attempt + 1))
+
+    text = (reply.get("message") or {}).get("content") or ""
+    if not text.strip():
+        raise RuntimeError(f"Philibert's model {model} returned no text "
+                           f"(done_reason={reply.get('done_reason')})")
+    return text
+
+
+def call_philibert_llm(prompt: str) -> str:
+    return _philibert_chat(current_model("philibert"), {"role": "user", "content": prompt}, 0.2)
+
+
+def call_philibert_vision(parts: list) -> str:
+    """Ollama takes a message's images as a list beside its text, so where each
+    one belongs is marked in the text."""
+    text, images = [], []
+    for p in parts:
+        if isinstance(p, str):
+            text.append(p)
+        else:
+            images.append(base64.b64encode(p[0]).decode("ascii"))
+            text.append(f"[image {len(images)}]")
+    message = {"role": "user", "content": "\n".join(text), "images": images}
+    return _philibert_chat(philibert_vision_model(), message, 0.1)
 
 
 def _is_daily_quota(msg: str) -> bool:
@@ -308,7 +397,8 @@ def _switch_to_openai(why: str) -> None:
 # Groq's text model cannot see. This one can, and takes at most five images
 # per request, which is why the vision batch size asks who it is talking to.
 GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-_IMAGES_PER_REQUEST = {"gemini": 20, "openai": 20, "groq": 5}
+# Philibert: one clip's frames at a time, which a small vision model keeps apart.
+_IMAGES_PER_REQUEST = {"gemini": 20, "openai": 20, "groq": 5, "philibert": 4}
 
 
 def _as_gemini_parts(parts: list) -> list:
@@ -367,6 +457,8 @@ def call_vision_llm(parts: list) -> str:
     """
     images = sum(1 for p in parts if not isinstance(p, str))
     first = _fallback_provider or current_provider()
+    if first == "philibert":
+        return call_philibert_vision(parts)
     order = [first] + [p for p in ("gemini", "openai", "groq") if p != first]
     configured = {"gemini": _gemini_is_configured, "openai": _openai_is_configured,
                   "groq": _groq_is_configured}
@@ -413,13 +505,15 @@ def call_local_llm(prompt: str) -> str:
     """
     provider = _fallback_provider or current_provider()
 
+    if provider == "philibert":
+        return call_philibert_llm(prompt)
     if provider == "openai":
         return call_openai_llm(prompt)
     if provider == "groq":
         return call_groq_llm(prompt)
     if provider != "gemini":
         raise RuntimeError(
-            f"Unknown LLM_PROVIDER={provider!r}. Use 'gemini', 'groq' or 'openai'."
+            f"Unknown LLM_PROVIDER={provider!r}. Use 'philibert', 'gemini', 'groq' or 'openai'."
         )
 
     if usage.is_exhausted("gemini", current_model("gemini")):

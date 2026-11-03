@@ -265,7 +265,9 @@ def _write_folder_guide() -> None:
 
 
 def has_llm_key() -> bool:
-    provider = (get("LLM_PROVIDER", "gemini") or "gemini").lower()
+    provider = (get("LLM_PROVIDER", "philibert") or "philibert").lower()
+    if provider == "philibert":
+        return True     # local models need no key
     if provider == "openai":
         return bool(get("OPENAI_API_KEY"))
     return bool(get("GEMINI_API_KEY"))

@@ -254,7 +254,7 @@ async function checkSetup() {
     if (d.daily_limits) $("capOpenai").value = d.daily_limits.openai || "";
     drawSwitcher(d.provider);
     $("setInfo").innerHTML = `
-      <div><span>Key</span><b>${d.has_key ? "set — from " + esc(d.source) : "not set"}</b></div>
+      <div><span>Key</span><b>${d.provider === "philibert" ? "not needed" : d.has_key ? "set — from " + esc(d.source) : "not set"}</b></div>
       <div><span>Model</span><b>${esc(d.model || "—")}</b></div>
       <div><span>ffmpeg</span><b>${d.ffmpeg ? "found" : "missing"}</b></div>`;
     if (!d.ffmpeg) {
@@ -316,16 +316,19 @@ function drawModels(d) {
   // allowance, so they carry a written note instead of a number — hiding the
   // control entirely, as this used to, left no way to choose one at all.
   const groq = d.provider === "groq";
-  const models = (groq ? d.groq_models : d.gemini_models) || [];
-  if (!["gemini", "groq"].includes(d.provider) || !models.length) {
-    fld.hidden = true; hint.textContent = ""; return;
+  const local = d.provider === "philibert";
+  const models = (local ? d.philibert_models : groq ? d.groq_models : d.gemini_models) || [];
+  if (!["gemini", "groq", "philibert"].includes(d.provider) || !models.length) {
+    fld.hidden = true;
+    hint.textContent = local ? "Can't reach Philibert's models. Is Philibert or Ollama running?" : "";
+    return;
   }
 
   fld.hidden = false;
   // A model we have no confirmed number for says so, rather than showing a
   // guess with the same confidence as a checked one.
   sel.innerHTML = models.map((m) => {
-    const note = groq ? m.note
+    const note = groq || local ? m.note
                       : (m.daily_free ? `${m.daily_free}/day free` : "limit unknown");
     return `<option value="${esc(m.value)}">${esc(m.value)} — ${esc(note)}</option>`;
   }).join("");
@@ -335,12 +338,15 @@ function drawModels(d) {
 
   if (d.model_pinned) {
     sel.disabled = true;
-    hint.textContent = `${groq ? "GROQ_MODEL" : "GEMINI_MODEL"} in your `
+    hint.textContent = `${local ? "PHILIBERT_MODEL" : groq ? "GROQ_MODEL" : "GEMINI_MODEL"} in your `
       + "environment is deciding this one.";
     return;
   }
   sel.disabled = false;
-  hint.textContent = groq
+  hint.textContent = local
+    ? "Runs on your own graphics card. Nothing is sent to the cloud, and a bigger "
+      + "model usually picks better clips but takes longer."
+    : groq
     ? "Groq's free tier is the same for every model here — 30 a minute, 1000 a "
       + "day, 8k tokens a minute — so this is a straight quality-for-speed "
       + "trade, not an allowance one."
@@ -519,7 +525,7 @@ $("setProvider").onchange = () => keyLinkFor($("setProvider").value);
 
 async function saveKey(providerEl, keyEl, btn, msgEl, onDone) {
   const key = keyEl.value.trim();
-  if (!key) { msgEl.innerHTML = `<div class="err">Paste a key first.</div>`; return; }
+  if (!key && providerEl.value !== "philibert") { msgEl.innerHTML = `<div class="err">Paste a key first.</div>`; return; }
   const label = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Saving…";

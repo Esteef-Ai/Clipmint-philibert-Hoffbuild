@@ -59,7 +59,12 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 # thing no amount of retrying against Google can achieve.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+# Philibert: the models on this PC (or a PC sharing them), through the Ollama
+# Philibert runs. PHILIBERT_URL can also be a "Share my models" address.
+PHILIBERT_URL = os.getenv("PHILIBERT_URL", "http://127.0.0.1:11434")
+PHILIBERT_MODEL = os.getenv("PHILIBERT_MODEL", "qwen3:8b")
+PHILIBERT_VISION_MODEL = os.getenv("PHILIBERT_VISION_MODEL", "qwen2.5vl:7b")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "philibert").strip().lower()
 LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
 LOCAL_WHISPER_DEVICE = os.getenv("LOCAL_WHISPER_DEVICE", "auto")  # auto / cpu / cuda
 LOCAL_OUTPUT_DIR = os.getenv("LOCAL_OUTPUT_DIR", "output")
@@ -100,7 +105,7 @@ def require_api_key() -> str:
 def current_provider() -> str:
     """LLM provider, re-read at call time so UI changes take effect live."""
     from . import user_config
-    return (user_config.get("LLM_PROVIDER", LLM_PROVIDER) or "gemini").strip().lower()
+    return (user_config.get("LLM_PROVIDER", LLM_PROVIDER) or "philibert").strip().lower()
 
 
 def current_processor() -> str:
@@ -119,7 +124,19 @@ def current_model(provider: str) -> str:
         return user_config.get("OPENAI_MODEL", OPENAI_MODEL)
     if provider == "groq":
         return user_config.get("GROQ_MODEL", GROQ_MODEL)
+    if provider == "philibert":
+        return user_config.get("PHILIBERT_MODEL", PHILIBERT_MODEL)
     return user_config.get("GEMINI_MODEL", GEMINI_MODEL)
+
+
+def philibert_url() -> str:
+    from . import user_config
+    return (user_config.get("PHILIBERT_URL", PHILIBERT_URL) or PHILIBERT_URL).rstrip("/")
+
+
+def philibert_vision_model() -> str:
+    from . import user_config
+    return user_config.get("PHILIBERT_VISION_MODEL", PHILIBERT_VISION_MODEL)
 
 
 def _where_we_looked(name: str) -> str:

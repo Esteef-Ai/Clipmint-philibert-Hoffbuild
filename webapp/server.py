@@ -214,6 +214,11 @@ GROQ_MODEL_OPTIONS = [
 ]
 
 
+def _philibert_model_options() -> list:
+    from shorts_generator.local.llm import list_philibert_models
+    return list_philibert_models()
+
+
 @app.get("/api/settings")
 async def get_settings() -> dict:
     """What the UI needs to decide whether to show first-run setup.
@@ -256,7 +261,9 @@ async def get_settings() -> dict:
         # so the choice is made with the number in view.
         "gemini_models": _gemini_model_options(),
         "groq_models": GROQ_MODEL_OPTIONS,
-        "model_pinned": bool(os.getenv("GEMINI_MODEL", "").strip())
+        "philibert_models": _philibert_model_options() if provider == "philibert" else [],
+        "model_pinned": bool(os.getenv("PHILIBERT_MODEL", "").strip())
+        if provider == "philibert" else bool(os.getenv("GEMINI_MODEL", "").strip())
         if provider == "gemini" else bool(os.getenv("GROQ_MODEL", "").strip())
         if provider == "groq" else bool(os.getenv("OPENAI_MODEL", "").strip()),
     }
@@ -300,9 +307,9 @@ async def set_settings(req: SettingsRequest) -> dict:
     # the "gemini or else openai" shape silently files Groq's key under
     # OpenAI's name, which is the kind of bug that only shows up as a
     # confusing auth failure much later.
-    prefixes = {"gemini": "GEMINI", "openai": "OPENAI", "groq": "GROQ"}
+    prefixes = {"gemini": "GEMINI", "openai": "OPENAI", "groq": "GROQ", "philibert": "PHILIBERT"}
     if provider not in prefixes:
-        raise HTTPException(400, "Provider must be 'gemini', 'groq' or 'openai'.")
+        raise HTTPException(400, "Provider must be 'philibert', 'gemini', 'groq' or 'openai'.")
     prefix = prefixes[provider]
 
     key = (req.api_key or "").strip()
@@ -310,7 +317,7 @@ async def set_settings(req: SettingsRequest) -> dict:
     # Switching to a provider whose key is already stored must not demand the
     # key again — retyping a secret you already saved is not a security step,
     # it is just a reason to keep the wrong provider selected.
-    if not key and not user_config.get(key_name):
+    if provider != "philibert" and not key and not user_config.get(key_name):
         raise HTTPException(400, "Paste an API key first.")
 
     values = {} if req.as_fallback else {"LLM_PROVIDER": provider}
