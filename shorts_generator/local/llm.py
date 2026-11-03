@@ -181,9 +181,36 @@ def list_philibert_models() -> List[dict]:
             for m in found if "embed" not in m["name"]]
 
 
+def _philibert_can_see(name: str) -> bool:
+    try:
+        return "vision" in (_philibert_post("/api/show", {"model": name}, 10).get("capabilities") or [])
+    except Exception:
+        return False
+
+
+def _philibert_pick(wanted: str, vision: bool) -> str:
+    """The model asked for if it is installed. If not, the smallest installed one
+    that can do the job, so a first run works before anything has been chosen."""
+    try:
+        found = _philibert_post("/api/tags", None, 5).get("models") or []
+    except Exception:
+        return wanted      # the request itself reports what is wrong
+    names = [m["name"] for m in sorted(found, key=lambda m: m.get("size", 0))
+             if "embed" not in m["name"]]
+    if wanted in names:
+        return wanted
+    seeing = [n for n in names if _philibert_can_see(n)]
+    choices = seeing if vision else ([n for n in names if n not in seeing] or names)
+    if not choices:
+        return wanted
+    print(f"[llm] {wanted} is not installed here; using {choices[0]}", flush=True)
+    return choices[0]
+
+
 def _philibert_chat(model: str, message: dict, temperature: float) -> str:
     """One request to the local model. Never falls over to a cloud provider:
     someone who chose this chose to keep their transcript and frames at home."""
+    model = _philibert_pick(model, bool(message.get("images")))
     body = {
         "model": model,
         "stream": False,

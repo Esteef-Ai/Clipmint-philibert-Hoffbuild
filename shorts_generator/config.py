@@ -1,6 +1,11 @@
+import json
 import os
 import sys
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -60,8 +65,8 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 # Philibert: the models on this PC (or a PC sharing them), through the Ollama
-# Philibert runs. PHILIBERT_URL can also be a "Share my models" address.
-PHILIBERT_URL = os.getenv("PHILIBERT_URL", "http://127.0.0.1:11434")
+# Philibert runs. Empty finds it; PHILIBERT_URL can be a "Share my models" address.
+PHILIBERT_URL = os.getenv("PHILIBERT_URL", "").strip()
 PHILIBERT_MODEL = os.getenv("PHILIBERT_MODEL", "qwen3:8b")
 PHILIBERT_VISION_MODEL = os.getenv("PHILIBERT_VISION_MODEL", "qwen2.5vl:7b")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "philibert").strip().lower()
@@ -129,9 +134,41 @@ def current_model(provider: str) -> str:
     return user_config.get("GEMINI_MODEL", GEMINI_MODEL)
 
 
+# Philibert starts its own Ollama on the first free port from 11435; a separately
+# installed Ollama sits on 11434. Philibert's are asked first.
+_OLLAMA_PORTS = list(range(11435, 11456)) + [11434]
+_found_url = ("", 0.0)
+
+
+def _ollama_models_on(port: int) -> Optional[int]:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/tags", timeout=1.5) as resp:
+            return len(json.loads(resp.read().decode("utf-8"))["models"])
+    except Exception:
+        return None
+
+
 def philibert_url() -> str:
     from . import user_config
-    return (user_config.get("PHILIBERT_URL", PHILIBERT_URL) or PHILIBERT_URL).rstrip("/")
+    global _found_url
+    saved = (user_config.get("PHILIBERT_URL", PHILIBERT_URL) or "").strip()
+    if saved:
+        return saved.rstrip("/")
+    # Looked up again after a minute: Philibert may restart on another port.
+    url, when = _found_url
+    if url and time.time() - when < 60:
+        return url
+    with ThreadPoolExecutor(len(_OLLAMA_PORTS)) as pool:
+        counts = list(pool.map(_ollama_models_on, _OLLAMA_PORTS))
+    live = [p for p, n in zip(_OLLAMA_PORTS, counts) if n is not None]
+    with_models = [p for p, n in zip(_OLLAMA_PORTS, counts) if n]
+    if not live:
+        return "http://127.0.0.1:11435"     # nothing there: the error names this address
+    url = f"http://127.0.0.1:{(with_models or live)[0]}"
+    if url != _found_url[0]:
+        print(f"[llm] using the models at {url}", flush=True)
+    _found_url = (url, time.time())
+    return url
 
 
 def philibert_vision_model() -> str:

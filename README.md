@@ -10,9 +10,9 @@
 > **Download this build from [this repo's Releases](https://github.com/Esteef-Ai/Clipmint-philibert-Hoffbuild/releases).** Download links further down this page go to the original ClipMint, which uses cloud AI.
 >
 > **Setup:**
-> 1. Install and start Philibert or [Ollama](https://ollama.com).
-> 2. Install a text model and a vision model. The defaults are `qwen3:8b` and `qwen2.5vl:7b`.
-> 3. Run `ClipMint.exe` and pick your model in Settings. Windows may warn that the app is unsigned.
+> 1. Open Philibert, or start [Ollama](https://ollama.com), and leave it running. The app finds it by itself.
+> 2. Have a text model and a vision model installed. The defaults are `qwen3:8b` and `qwen2.5vl:7b`. If those are missing, the app uses the smallest suitable model you have.
+> 3. Run `ClipMint.exe`, and pick a bigger model in Settings if you want. Windows may warn that the app is unsigned: More info, then Run anyway.
 >
 > The rest of this page is the original ClipMint README, and some of what it says about API keys and cloud AI does not apply to this build.
 >
