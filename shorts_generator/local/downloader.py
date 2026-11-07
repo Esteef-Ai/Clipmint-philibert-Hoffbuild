@@ -8,7 +8,7 @@ import re
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from . import yt_access
 from .. import proc
@@ -139,6 +139,46 @@ def _progress_line(d: Dict) -> None:
         print(" ".join(parts), flush=True)
     except Exception:
         pass
+
+
+def _is_rumble(url: str) -> bool:
+    host = (urlparse(url).netloc or "").lower()
+    return host == "rumble.com" or host.endswith(".rumble.com")
+
+
+def _site_opts(url: str) -> Dict:
+    """Extra yt-dlp options for sites that need them.
+
+    Rumble sits behind a bot check and has refused a run of quick requests with
+    403. Asking as Chrome (yt-dlp's impersonation, through curl_cffi) is what
+    gets past that kind of check. Without curl_cffi it asks as before.
+    """
+    if not _is_rumble(url):
+        return {}
+    try:
+        from yt_dlp.networking._curlcffi import CurlCFFIRH  # noqa: F401 -- raises if curl_cffi is missing or unsupported
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+    except ImportError:
+        return {}
+    return {"impersonate": ImpersonateTarget("chrome")}
+
+
+def _with_retries(url: str, call: Callable):
+    """Run `call`, waiting and trying again when Rumble turns a request away.
+
+    A 403 from Rumble is its rate limit, and it passes: two more tries, 15 and
+    30 seconds apart, before the error stands.
+    """
+    waits = (15, 30) if _is_rumble(url) else ()
+    for wait in waits + (None,):
+        try:
+            return call()
+        except Exception as e:
+            if wait is None or "403" not in str(e):
+                raise
+            print(f"[download/local] Rumble turned the request away (403); "
+                  f"trying again in {wait}s", flush=True)
+            time.sleep(wait)
 
 
 # Rumble lists a "timeline" track beside the real video: a 180p strip for the
@@ -373,10 +413,11 @@ def fetch_video_meta(video_url: str) -> Dict:
 
     try:
         yt_dlp = _import_ytdlp()
-        opts = {"quiet": True, "no_warnings": True, "skip_download": True}
-        info = yt_access.run(
+        opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                **_site_opts(video_url)}
+        info = _with_retries(video_url, lambda: yt_access.run(
             yt_dlp, opts,
-            lambda ydl: ydl.extract_info(video_url, download=False) or {}) or {}
+            lambda ydl: ydl.extract_info(video_url, download=False) or {})) or {}
     except Exception as e:
         print(f"[download/local] could not read video details ({e})", flush=True)
         return {}
@@ -472,6 +513,7 @@ def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[s
         # it is not a speed-up, it is insurance against the throttled case,
         # which is the one people actually report.
         "http_chunk_size": 10 * 1024 * 1024,
+        **_site_opts(video_url),
     }
 
     def _run(opts):
@@ -485,7 +527,7 @@ def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[s
                     "Try again once it's over and has become a normal video.")
             info = ydl.process_ie_result(info, download=True)
             return ydl.prepare_filename(info), info
-        return yt_access.run(yt_dlp, opts, once)
+        return _with_retries(video_url, lambda: yt_access.run(yt_dlp, opts, once))
 
     try:
         path, info = _run(ydl_opts)
