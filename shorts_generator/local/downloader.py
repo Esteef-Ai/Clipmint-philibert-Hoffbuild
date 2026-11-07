@@ -141,6 +141,13 @@ def _progress_line(d: Dict) -> None:
         pass
 
 
+# Rumble lists a "timeline" track beside the real video: a 180p strip for the
+# seek-bar previews, and the only video-only format it has. "bestvideo" means
+# video-only, so it took that strip, and a 23-minute video came down as 35 KB.
+# Its real formats carry their audio, and the plain "best" steps reach them.
+_NOT_PREVIEW = "[format_id!*=timeline]"
+
+
 def _format_for(fmt: str) -> str:
     """Map our '720' / '1080' / 'best' shorthand to a yt-dlp format selector.
 
@@ -148,12 +155,13 @@ def _format_for(fmt: str) -> str:
     when the clips are meant to come out at the source's real quality.
     """
     fmt = (fmt or "").strip().lower()
+    v = _NOT_PREVIEW
     if fmt in ("best", "max", "source", "auto", ""):
         # Deliberately not restricted to mp4-friendly codecs. Above 1080p
         # YouTube only offers VP9 and AV1, so demanding H.264 here would
         # quietly cap "best" at 1080p. The container is what gives instead --
         # see merge_output_format below.
-        return "bestvideo+bestaudio/best"
+        return f"bestvideo{v}+bestaudio/best{v}/best"
     try:
         height = int(fmt)
     except ValueError:
@@ -162,10 +170,10 @@ def _format_for(fmt: str) -> str:
         # H.264 video with AAC audio first: that pair goes into an mp4 with a
         # plain remux, no re-encode and nothing for ffmpeg to refuse. Only if
         # the video has no such pair does this fall back to whatever exists.
-        f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
-        f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/"
-        f"bestvideo[height<={height}]+bestaudio/"
-        f"best[height<={height}]/best"
+        f"bestvideo[height<={height}][vcodec^=avc1]{v}+bestaudio[acodec^=mp4a]/"
+        f"bestvideo[height<={height}][ext=mp4]{v}+bestaudio[ext=m4a]/"
+        f"bestvideo[height<={height}]{v}+bestaudio/"
+        f"best[height<={height}]{v}/best{v}/best"
     )
 
 
@@ -468,7 +476,14 @@ def download_youtube_local(video_url: str, fmt: str = "720", out_dir: Optional[s
 
     def _run(opts):
         def once(ydl):
-            info = ydl.extract_info(video_url, download=True)
+            # A live stream has no end, so its download never finishes. Rumble
+            # lists many of them, and the run used to sit there for good.
+            info = ydl.extract_info(video_url, download=False)
+            if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
+                raise RuntimeError(
+                    "This is a live stream, so it can't be downloaded until it ends. "
+                    "Try again once it's over and has become a normal video.")
+            info = ydl.process_ie_result(info, download=True)
             return ydl.prepare_filename(info), info
         return yt_access.run(yt_dlp, opts, once)
 
